@@ -20,15 +20,9 @@ pub fn open_or_init<P: AsRef<Path>>(db_path: P) -> rusqlite::Result<Connection> 
             description TEXT,
             status TEXT,
             submitted INTEGER,
+            parameters_json JSON,
             _last_sync_time TEXT,
             UNIQUE(collection_uid, path)
-        );
-        CREATE TABLE IF NOT EXISTS parameters (
-            id INTEGER PRIMARY KEY,
-            simulation_id INTEGER NOT NULL,
-            key TEXT NOT NULL,
-            value TEXT NOT NULL,
-            UNIQUE(simulation_id, key)
         );
     "#,
     )?;
@@ -61,15 +55,19 @@ pub fn upsert_simulation(
     collection_uid: &str,
     path: &str,
     meta: &MetaData,
+    parameters: &Parameters,
 ) -> rusqlite::Result<i64> {
+    let parameters_json = serde_json::to_string(parameters).unwrap_or("{}".to_string());
+
     conn.execute(
-        "INSERT INTO simulations (collection_uid, path, created_at, description, status, submitted, _last_sync_time)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        "INSERT INTO simulations (collection_uid, path, created_at, description, status, submitted, parameters_json, _last_sync_time)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
         ON CONFLICT(collection_uid, path) DO UPDATE SET
             created_at = excluded.created_at,
             description = excluded.description,
             status = excluded.status,
             submitted = excluded.submitted,
+            parameters_json = excluded.parameters_json,
             _last_sync_time = excluded._last_sync_time
         ",
         params![
@@ -79,6 +77,7 @@ pub fn upsert_simulation(
             meta.description,
             meta.status.as_str(),
             meta.submitted as i32,
+            parameters_json,
             chrono::offset::Local::now().to_rfc3339(),
         ],
     )?;
@@ -88,23 +87,4 @@ pub fn upsert_simulation(
         conn.prepare("SELECT id FROM simulations WHERE collection_uid = ?1 AND path = ?2")?;
     let id: i64 = stmt.query_row(params![collection_uid, path], |row| row.get(0))?;
     Ok(id)
-}
-
-pub fn set_parameters(
-    conn: &Connection,
-    simulation_id: i64,
-    parameters: &Parameters,
-) -> rusqlite::Result<()> {
-    // remove old parameters for this simulation
-    conn.execute(
-        "DELETE FROM parameters WHERE simulation_id=?1",
-        params![simulation_id],
-    )?;
-    for (k, v) in parameters {
-        conn.execute(
-            "INSERT INTO parameters (simulation_id, key, value) VALUES (?1, ?2, ?3)",
-            params![simulation_id, k, v.to_string()],
-        )?;
-    }
-    Ok(())
 }
