@@ -12,3 +12,4 @@ hdf5 = { package = "hdf5-metno", version = "^0.10" }
 chrono = "^0.4"
 rusqlite = { version = "0.36.0", features = ["bundled"] }
 clap = { version = "^4.5", features = ["derive"] }
+tabled = "0.20.0"

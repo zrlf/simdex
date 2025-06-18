@@ -1,4 +1,3 @@
-use chrono::DateTime;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 
