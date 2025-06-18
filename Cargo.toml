@@ -5,8 +5,9 @@ edition = "2024"
 
 [dependencies]
 serde_json = "*"
-serde = { version = "1.0", features = ["derive"] }
-serde_yaml = "0.9"
-walkdir = "2"
-hdf5 = { package = "hdf5-metno", version = "0.10.0" }
-chrono = "0.4"
+serde = { version = "^1", features = ["derive"] }
+serde_yaml = "^0.9"
+walkdir = "^2"
+hdf5 = { package = "hdf5-metno", version = "^0.10" }
+chrono = "^0.4"
+rusqlite = { version = "0.36.0", features = ["bundled"] }

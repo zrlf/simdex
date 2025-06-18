@@ -2,21 +2,26 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-pub fn find_collections(root: &Path) -> Vec<PathBuf> {
+pub fn find_collections(root: &Path) -> Vec<(PathBuf, String)> {
     WalkDir::new(root)
         .min_depth(1)
         .max_depth(5) // Change as needed
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|entry| {
-            entry.file_type().is_file()
-                && entry
-                    .file_name()
-                    .to_str()
-                    .map(|name| name.starts_with(".bamboost-collection-"))
-                    .unwrap_or(false)
+        .filter_map(|entry| {
+            if entry.file_type().is_file() {
+                if let Some(name) = entry.file_name().to_str() {
+                    let prefix = ".bamboost-collection-";
+                    if let Some(uid) = name.strip_prefix(prefix) {
+                        return Some((
+                            entry.path().parent().unwrap().to_path_buf(),
+                            uid.to_string(),
+                        ));
+                    }
+                }
+            }
+            None
         })
-        .map(|entry| entry.path().parent().unwrap().to_path_buf())
         .collect()
 }
 
