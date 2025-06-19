@@ -2,6 +2,25 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+/// Searches for collection files within the given root directory.
+///
+/// A collection file is identified by its filename starting with the prefix ".bamboost-collection-".
+/// The function recursively searches up to 5 levels deep from the root directory.
+///
+/// # Arguments
+///
+/// * `root` - The root directory to search for collection files.
+///
+/// # Returns
+///
+/// A vector of tuples, where each tuple contains:
+/// - The parent directory of the collection file (`PathBuf`)
+/// - The unique identifier (`String`) extracted from the filename after the prefix
+///
+/// # Errors
+///
+/// Any errors encountered while reading directories or entries are printed to stderr,
+/// and those entries are skipped.
 pub fn find_collections(root: &Path) -> Vec<(PathBuf, String)> {
     let prefix = ".bamboost-collection-";
     WalkDir::new(root)
@@ -30,6 +49,17 @@ pub fn find_collections(root: &Path) -> Vec<(PathBuf, String)> {
         .collect()
 }
 
+/// Finds entry directories within a collection directory that contain a "data.h5" file.
+///
+/// # Arguments
+///
+/// * `collection_path` - The path to the collection directory to search.
+///
+/// # Returns
+///
+/// A vector of `PathBuf` objects, each representing a directory inside the collection
+/// that contains a "data.h5" file. Any errors encountered while reading the directory
+/// or its entries are printed to stderr, and those entries are skipped.
 pub fn find_entries(collection_path: &Path) -> Vec<PathBuf> {
     let entries = match fs::read_dir(collection_path) {
         Ok(entries) => entries,
