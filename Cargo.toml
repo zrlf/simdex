@@ -3,6 +3,15 @@ name = "simdex"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "simdex"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "simdex"
+path = "src/main.rs"
+
 [dependencies]
 serde_json = "*"
 serde = { version = "^1", features = ["derive"] }

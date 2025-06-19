@@ -1,7 +1,7 @@
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 
-use crate::types::{MetaData, Parameters};
+use crate::core::types::{MetaData, Parameters};
 
 pub fn open_or_init<P: AsRef<Path>>(db_path: P) -> rusqlite::Result<Connection> {
     let conn = Connection::open(db_path)?;

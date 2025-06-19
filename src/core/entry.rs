@@ -1,9 +1,10 @@
-use crate::types::{MetaData, Parameters};
 use chrono::{DateTime, Utc};
 use hdf5::File;
 use serde::Deserialize;
 use serde_json::Value;
 use std::path::Path;
+
+use crate::core::types::{MetaData, Parameters};
 
 #[derive(Deserialize)]
 struct TypeWrapper {

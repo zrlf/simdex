@@ -1,8 +1,8 @@
-use crate::{collection, db, entry};
-use std::{fs, path::Path};
-
 use serde_json::Value as JsonValue;
+use std::{fs, path::Path};
 use tabled::{Tabled, settings::Style};
+
+use crate::core::{collection, db, entry};
 
 #[derive(Tabled)]
 struct Row {
@@ -199,12 +199,12 @@ pub fn ls_params(db_path: &Path, collection: &str) {
 }
 
 pub fn migrate(root: &Path) {
-    use crate::entry::load_entry_meta;
+    use crate::core::entry::load_entry_meta;
     use std::fs::write;
 
-    let collections = crate::collection::find_collections(root);
+    let collections = collection::find_collections(root);
     for (c_path, _) in &collections {
-        let entries = crate::collection::find_entries(c_path);
+        let entries = collection::find_entries(c_path);
         for entry in entries {
             if let Some((meta, params)) = load_entry_meta(&entry) {
                 let yaml_out = serde_yaml::to_string(&serde_json::json!({
