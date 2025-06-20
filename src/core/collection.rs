@@ -1,46 +1,10 @@
 use serde::Serialize;
-use std::fmt;
-use std::fs::File;
-use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::{fs, io};
 use walkdir::WalkDir;
 
 const META_FILE_PREFIX: &str = ".bamboost-collection-";
-type TypeParameters = std::collections::HashMap<String, String>;
-
-#[derive(Debug)]
-struct Entry {
-    name: String,
-    parameters: TypeParameters,
-}
-
-impl Entry {
-    fn new(name: impl Into<String>, parameters: TypeParameters) -> Self {
-        Entry {
-            name: name.into(),
-            parameters,
-        }
-    }
-}
-
-#[derive(Debug, Default)]
-struct Collection {
-    pub path: PathBuf,
-    pub uid: String,
-    pub entries: Vec<Entry>,
-}
-
-impl Collection {
-    fn new(path: impl Into<PathBuf>, uid: impl Into<String>) -> Self {
-        Collection {
-            path: path.into(),
-            uid: uid.into(),
-            ..Collection::default()
-        }
-    }
-}
 
 fn create_identifier(path: &Path, uid: &str) -> std::io::Result<()> {
     #[derive(Serialize)]
