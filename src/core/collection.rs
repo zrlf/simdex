@@ -1,6 +1,148 @@
-use std::fs;
-use std::path::{Path, PathBuf};
+use serde::Serialize;
+use std::fmt;
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
+use std::path::PathBuf;
+use std::{fs, io};
 use walkdir::WalkDir;
+
+const META_FILE_PREFIX: &str = ".bamboost-collection-";
+type TypeParameters = std::collections::HashMap<String, String>;
+
+#[derive(Debug)]
+struct Entry {
+    name: String,
+    parameters: TypeParameters,
+}
+
+impl Entry {
+    fn new(name: impl Into<String>, parameters: TypeParameters) -> Self {
+        Entry {
+            name: name.into(),
+            parameters,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct Collection {
+    pub path: PathBuf,
+    pub uid: String,
+    pub entries: Vec<Entry>,
+}
+
+impl Collection {
+    fn new(path: impl Into<PathBuf>, uid: impl Into<String>) -> Self {
+        Collection {
+            path: path.into(),
+            uid: uid.into(),
+            ..Collection::default()
+        }
+    }
+}
+
+fn create_identifier(path: &Path, uid: &str) -> std::io::Result<()> {
+    #[derive(Serialize)]
+    struct MetaFile<'a> {
+        uid: &'a str,
+        created: &'a str,
+        author: Option<String>,
+    }
+
+    let timestamp = chrono::Local::now().to_rfc3339();
+    let meta_file = path
+        .join(format!("{}{}", META_FILE_PREFIX, uid))
+        .with_extension("yml");
+
+    let yaml = serde_yaml::to_string(&MetaFile {
+        uid,
+        created: &timestamp,
+        author: None, // Optionally set the author
+    })
+    .unwrap_or_else(|_| {
+        eprintln!("Failed to serialize metadata to YAML");
+        String::new()
+    });
+
+    fs::write(&meta_file, yaml)?;
+
+    Ok(())
+}
+
+pub fn create_collection(path: impl Into<PathBuf>, uid: &str) -> std::io::Result<()> {
+    let path: PathBuf = path.into();
+    let _uid: String = uid.into();
+
+    if path.exists() {
+        if !path.is_dir() {
+            return Err(std::io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!(
+                    "Path '{}' already exists and is not a directory",
+                    path.display()
+                ),
+            ));
+        }
+        let mut dir = fs::read_dir(&path)?;
+        if dir.next().is_some() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::DirectoryNotEmpty,
+                format!(
+                    "Directory '{}' already exists and is not empty",
+                    path.display()
+                ),
+            ));
+        }
+        // Directory exists and is empty
+    } else {
+        fs::create_dir_all(&path)?;
+    }
+
+    // Create the identifier file
+    create_identifier(&path, uid)?;
+
+    Ok(())
+}
+
+/// Reads the collection meta file from the specified directory and extracts the unique identifier (UID).
+///
+/// The meta file is expected to have a filename starting with the prefix defined by `META_FILE_PREFIX`.
+/// This function searches for such a file in the given directory and returns the UID portion of the filename.
+///
+/// # Arguments
+///
+/// * `path` - The path to the directory to search for the meta file.
+///
+/// # Returns
+///
+/// * `Ok(String)` containing the UID if a meta file is found.
+/// * `Err(String)` with an error message if no meta file is found or if the directory cannot be read.
+fn read_meta_file(path: &Path) -> Result<String, String> {
+    let (_meta_file, uid) = path
+        .read_dir()
+        .map_err(|err| format!("Failed to read directory '{}': {}", path.display(), err))?
+        .find_map(|entry| {
+            entry.ok().and_then(|e| {
+                let path = e.path();
+                let file_name = path.file_stem()?;
+                let file_name_string = file_name.to_string_lossy();
+                let uid = file_name_string.strip_prefix(META_FILE_PREFIX)?;
+                Some((path.clone(), uid.to_string()))
+            })
+        })
+        .map(|(meta_file, uid)| (Some(meta_file), Some(uid)))
+        .unwrap_or((None, None));
+
+    match uid {
+        Some(uid) => Ok(uid),
+        None => Err(format!(
+            "No collection file found in '{}'. Expected a file starting with '{}'",
+            path.display(),
+            META_FILE_PREFIX
+        )),
+    }
+}
 
 /// Searches for collection files within the given root directory.
 ///
@@ -22,7 +164,6 @@ use walkdir::WalkDir;
 /// Any errors encountered while reading directories or entries are printed to stderr,
 /// and those entries are skipped.
 pub fn find_collections(root: &Path) -> Vec<(PathBuf, String)> {
-    let prefix = ".bamboost-collection-";
     WalkDir::new(root)
         .min_depth(1)
         .max_depth(5) // Change as needed
@@ -41,7 +182,8 @@ pub fn find_collections(root: &Path) -> Vec<(PathBuf, String)> {
             }
 
             let name = entry.file_name().to_str()?;
-            let uid = name.strip_prefix(prefix)?;
+            let uid_raw = name.strip_prefix(META_FILE_PREFIX)?;
+            let uid = uid_raw.strip_suffix(".yml").unwrap_or(uid_raw);
             let parent = entry.path().parent()?;
 
             Some((parent.to_path_buf(), uid.to_string()))
@@ -100,4 +242,41 @@ pub fn find_entries(collection_path: &Path) -> Vec<PathBuf> {
         .filter(|e| e.path().join("data.h5").exists())
         .map(|e| e.path())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_yaml::Value;
+    use std::fs;
+
+    #[test]
+    fn test_create_identifier_creates_yaml_with_timestamp() {
+        let tmp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let uid = "testuid";
+        let path = tmp_dir.path();
+
+        // Call the function
+        create_identifier(path, uid).expect("Failed to create identifier");
+
+        // Check file exists
+        let meta_file = path
+            .join(format!("{}{}", META_FILE_PREFIX, uid))
+            .with_extension("yml");
+        assert!(meta_file.exists(), "Meta file was not created");
+
+        // Read and parse YAML
+        let contents = fs::read_to_string(&meta_file).expect("Failed to read meta file");
+        let yaml: Value = serde_yaml::from_str(&contents).expect("Failed to parse YAML");
+
+        // Check that the 'created' field exists and is a string
+        assert!(
+            yaml.get("created").is_some(),
+            "YAML missing 'created' field"
+        );
+        assert!(
+            yaml["created"].as_str().is_some(),
+            "'created' field is not a string"
+        );
+    }
 }

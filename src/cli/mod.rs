@@ -42,4 +42,10 @@ pub enum Commands {
         #[arg()]
         collection: String,
     },
+    Create {
+        #[arg()]
+        path: PathBuf,
+        #[arg()]
+        uid: String,
+    },
 }

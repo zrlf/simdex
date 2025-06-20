@@ -14,5 +14,11 @@ fn main() {
             db_path,
             collection,
         } => simdex::api::display(db_path, collection),
+        // create returns a Result, so we handle the error
+        Commands::Create { path, uid } => {
+            if let Err(e) = simdex::core::collection::create_collection(path, uid) {
+                eprintln!("Error: {}", e);
+            }
+        }
     }
 }
