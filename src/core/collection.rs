@@ -1,19 +1,55 @@
 use serde::Serialize;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::Command;
 use std::{fs, io};
 use walkdir::WalkDir;
 
 const META_FILE_PREFIX: &str = ".bamboost-collection-";
 
-fn create_identifier(path: &Path, uid: &str) -> std::io::Result<()> {
-    #[derive(Serialize)]
-    struct MetaFile<'a> {
-        uid: &'a str,
-        created: &'a str,
-        author: Option<String>,
-    }
+#[derive(Serialize)]
+struct Author {
+    name: String,
+    email: String,
+}
 
+#[derive(Serialize)]
+struct MetaFile<'a> {
+    uid: &'a str,
+    created: &'a str,
+    author: Option<Author>,
+}
+
+fn git_user() -> Option<Author> {
+    let name = Command::new("git")
+        .args(["config", "--get", "user.name"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string());
+
+    let email = Command::new("git")
+        .args(["config", "--get", "user.email"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string());
+
+    match (name, email) {
+        (Some(name), Some(email)) => Some(Author { name, email }),
+        _ => None,
+    }
+}
+
+fn system_user() -> Option<Author> {
+    None
+}
+
+fn get_author() -> Option<Author> {
+    git_user().or_else(system_user)
+}
+
+fn create_identifier(path: &Path, uid: &str) -> std::io::Result<()> {
     let timestamp = chrono::Local::now().to_rfc3339();
     let meta_file = path
         .join(format!("{}{}", META_FILE_PREFIX, uid))
@@ -22,7 +58,7 @@ fn create_identifier(path: &Path, uid: &str) -> std::io::Result<()> {
     let yaml = serde_yaml::to_string(&MetaFile {
         uid,
         created: &timestamp,
-        author: None, // Optionally set the author
+        author: get_author(), // Optionally set the author
     })
     .unwrap_or_else(|_| {
         eprintln!("Failed to serialize metadata to YAML");
