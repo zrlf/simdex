@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use hdf5::File;
 use serde::Deserialize;
 use serde_json::Value;
-use std::path::Path;
+use std::{fs, path::Path};
 
 use crate::core::types::{MetaData, Parameters};
 
@@ -12,6 +12,19 @@ struct TypeWrapper {
     _type: String,
     #[serde(rename = "__value__")]
     value: String,
+}
+
+/// Returns the modification time of `data.h5` in RFC3339 format, or None if unavailable.
+/// If the file does not exist or cannot be accessed, it returns None.
+///
+/// # Arguments
+/// * `path` - The path to the collection directory containing `data.h5`.
+pub fn get_data_h5_mtime(path: &Path) -> Option<chrono::DateTime<chrono::Local>> {
+    let h5_path = path.join("data.h5");
+    let meta = fs::metadata(h5_path).ok()?;
+    let mtime = meta.modified().ok()?;
+    let dt: chrono::DateTime<chrono::Local> = mtime.into();
+    Some(dt)
 }
 
 fn parse_datetime_field(val: &str) -> Option<DateTime<Utc>> {

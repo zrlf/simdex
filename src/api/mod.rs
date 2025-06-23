@@ -1,13 +1,16 @@
 use serde_json::Value as JsonValue;
 use std::{fs, path::Path};
-use tabled::{Tabled, settings::Style};
+use tabled::{
+    Tabled,
+    settings::{Color, Style, formatting::Justification, object::Rows, themes::Colorization},
+};
 
-use crate::core::{collection, db, entry};
+use crate::core::{collection, db, discovery, entry};
 
 #[derive(Tabled)]
 struct Row {
     id: i64,
-    path: String,
+    name: String,
     created_at: String,
     status: String,
     submitted: bool,
@@ -20,7 +23,7 @@ pub fn display(db_path: &Path, collection: &str) {
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, path, created_at, status, submitted, parameters_json
+            "SELECT id, name, created_at, status, submitted, parameters_json
          FROM simulations WHERE collection_uid = ?1",
         )
         .unwrap();
@@ -28,8 +31,8 @@ pub fn display(db_path: &Path, collection: &str) {
     let rows = stmt
         .query_map([collection], |row| {
             let id: i64 = row.get(0)?;
-            let path: String = row.get(1)?;
-            let created_at: String = row.get(2)?;
+            let name: String = row.get(1)?;
+            let created_at: String = (row.get(2)?);
             let status: String = row.get(3)?;
             let submitted: bool = row.get(4)?;
             let json: String = row.get(5)?;
@@ -44,7 +47,7 @@ pub fn display(db_path: &Path, collection: &str) {
 
             Ok(Row {
                 id,
-                path,
+                name,
                 created_at,
                 status,
                 submitted,
@@ -65,7 +68,7 @@ pub fn display(db_path: &Path, collection: &str) {
     use tabled::builder::Builder;
 
     let mut builder = Builder::default();
-    let mut header = vec!["id", "status", "submitted", "created_at", "path"];
+    let mut header = vec!["id", "status", "submitted", "created_at", "name"];
     header.extend(all_keys.iter().map(|k| k.as_str()));
     builder.push_record(header);
 
@@ -75,7 +78,7 @@ pub fn display(db_path: &Path, collection: &str) {
             row.status.clone(),
             row.submitted.to_string(),
             row.created_at.clone(),
-            row.path.clone(),
+            row.name.clone(),
         ];
         for key in &all_keys {
             values.push(row.parameters.get(key).cloned().unwrap_or_default());
@@ -85,28 +88,14 @@ pub fn display(db_path: &Path, collection: &str) {
 
     let mut table = builder.build();
     table.with(Style::blank());
+    table.modify(Rows::first(), Color::FG_BRIGHT_BLACK);
     println!("{}", table);
 }
 
-pub fn sync(root: &Path, db_path: &Path) {
-    /* use existing sync logic */
-
-    /// Returns the modification time of `data.h5` in RFC3339 format, or None if unavailable.
-    /// If the file does not exist or cannot be accessed, it returns None.
-    ///
-    /// # Arguments
-    /// * `path` - The path to the collection directory containing `data.h5`.
-    fn get_data_h5_mtime(path: &Path) -> Option<String> {
-        let h5_path = path.join("data.h5");
-        let meta = fs::metadata(h5_path).ok()?;
-        let mtime = meta.modified().ok()?;
-        let dt: chrono::DateTime<chrono::Utc> = mtime.into();
-        Some(dt.to_rfc3339())
-    }
-
+pub fn scan(root: &Path, db_path: &Path) {
     let mut conn = db::open_or_init(db_path).expect("failed to open SQLite database");
 
-    let collections = collection::find_collections(Path::new(root));
+    let collections = discovery::find_all(Path::new(root));
     println!("Found {} collections:", collections.len());
 
     let tx = conn.transaction().unwrap();
@@ -117,28 +106,33 @@ pub fn sync(root: &Path, db_path: &Path) {
         let entries = collection::find_entries(c_path);
 
         for entry in entries {
-            let entry_path = entry.display().to_string();
-            let mtime = match get_data_h5_mtime(&entry) {
+            let entry_name = entry
+                .file_name()
+                .expect("entry has no file name")
+                .to_string_lossy()
+                .to_string();
+
+            // check last sync time in db
+            let last_sync_time = db::get_sim_sync_time(&tx, c_uid, &entry_name);
+
+            // only process if changed or new
+            let mtime = match crate::core::entry::get_data_h5_mtime(&entry) {
                 Some(ut) => ut,
                 None => {
-                    println!("  [!] Failed to get mtime for entry: {:?}", entry);
+                    eprintln!("  [!] Failed to get mtime for entry: {:?}", entry);
                     continue;
                 }
             };
 
-            // check last sync time in db
-            let last_sync_time = db::get_sim_sync_time(&tx, c_uid, &entry_path).unwrap_or(None);
-
-            // only process if changed or new
-            if Some(mtime.clone()) <= last_sync_time {
+            // if last_sync_time is None, this will be false (not skipped)
+            if Some(mtime) < last_sync_time {
                 // unchanged -> skip
                 continue;
             }
 
             match entry::load_entry_meta(&entry) {
                 Some((meta, params)) => {
-                    let entry_path = entry.display().to_string();
-                    let sim_id = db::upsert_simulation(&tx, c_uid, &entry_path, &meta, &params)
+                    let sim_id = db::upsert_simulation(&tx, c_uid, &entry_name, &meta, &params)
                         .expect("db insert sim");
                     println!("  Synced entry: {:?} [{}]", entry, sim_id);
                 }
@@ -202,7 +196,7 @@ pub fn migrate(root: &Path) {
     use crate::core::entry::load_entry_meta;
     use std::fs::write;
 
-    let collections = collection::find_collections(root);
+    let collections = discovery::find_all(root);
     for (c_path, _) in &collections {
         let entries = collection::find_entries(c_path);
         for entry in entries {
