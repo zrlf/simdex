@@ -1,0 +1,23 @@
+[project]
+name = "simdex"
+version = "0.1.0"
+description = "Python bindings for simdex"
+readme = "README.md"
+authors = [
+    { name = "florez", email = "florez@ethz.ch" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "maturin>=1.8.7",
+]
+
+[project.scripts]
+simdex = "simdex:main"
+
+[build-system]
+requires = ["maturin"]
+build-backend = "maturin"
+
+[tool.maturin]
+python-source = "python"
+module-name = "simdex._simdex"
