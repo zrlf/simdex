@@ -1,8 +1,9 @@
+use pyo3::prelude::*;
 use serde_json::Value as JsonValue;
-use std::{fs, path::Path};
+use std::path::Path;
 use tabled::{
     Tabled,
-    settings::{Color, Style, formatting::Justification, object::Rows, themes::Colorization},
+    settings::{Color, Style, object::Rows},
 };
 
 use crate::core::{collection, db, discovery, entry};
@@ -18,52 +19,86 @@ struct Row {
     parameters: std::collections::HashMap<String, String>,
 }
 
-pub fn display(db_path: &Path, collection: &str) {
-    let conn = db::open_or_init(db_path).expect("failed to open DB");
+impl Row {
+    fn new(
+        id: i64,
+        name: String,
+        created_at: String,
+        status: String,
+        submitted: bool,
+        parameters_json: String,
+    ) -> Self {
+        let parsed: JsonValue = serde_json::from_str(&parameters_json).unwrap_or_default();
+        let parameters = parsed
+            .as_object()
+            .unwrap_or(&serde_json::Map::new())
+            .iter()
+            .map(|(k, v)| (k.clone(), v.to_string()))
+            .collect();
 
+        Self {
+            id,
+            name,
+            created_at,
+            status,
+            submitted,
+            parameters,
+        }
+    }
+}
+
+/// Flattens a vector of structs with a HashMap field into separate columns for each key in the HashMap.
+/// Returns a tuple of (Vec of field vectors, BTreeSet of all keys, Vec of HashMap values per key).
+fn flatten_hashmap_field(
+    rows: &[Row],
+    hashmap_field: fn(&Row) -> &std::collections::HashMap<String, String>,
+) -> (
+    std::collections::BTreeSet<String>,
+    std::collections::HashMap<String, Vec<Option<String>>>,
+) {
+    let mut all_keys = std::collections::BTreeSet::new();
+    for row in rows {
+        all_keys.extend(hashmap_field(row).keys().cloned());
+    }
+    let mut columns: std::collections::HashMap<String, Vec<Option<String>>> =
+        std::collections::HashMap::new();
+    for key in &all_keys {
+        columns.insert(key.clone(), Vec::with_capacity(rows.len()));
+    }
+    for row in rows {
+        let map = hashmap_field(row);
+        for key in &all_keys {
+            columns.get_mut(key).unwrap().push(map.get(key).cloned());
+        }
+    }
+    (all_keys, columns)
+}
+
+
+pub fn display(db_path: &Path, uid: &str) {
+    let conn = db::open_or_init(db_path).expect("failed to open DB");
     let mut stmt = conn
         .prepare(
             "SELECT id, name, created_at, status, submitted, parameters_json
-         FROM simulations WHERE collection_uid = ?1",
+             FROM simulations WHERE collection_uid = ?1",
         )
         .unwrap();
-
-    let rows = stmt
-        .query_map([collection], |row| {
-            let id: i64 = row.get(0)?;
-            let name: String = row.get(1)?;
-            let created_at: String = (row.get(2)?);
-            let status: String = row.get(3)?;
-            let submitted: bool = row.get(4)?;
-            let json: String = row.get(5)?;
-            let parsed: JsonValue = serde_json::from_str(&json).unwrap_or_default();
-
-            let params = parsed
-                .as_object()
-                .unwrap_or(&serde_json::Map::new())
-                .iter()
-                .map(|(k, v)| (k.clone(), v.to_string()))
-                .collect();
-
-            Ok(Row {
-                id,
-                name,
-                created_at,
-                status,
-                submitted,
-                parameters: params,
-            })
+    let rows: Vec<Row> = stmt
+        .query_map([uid], |row| {
+            Ok(Row::new(
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            ))
         })
-        .unwrap();
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
 
-    let mut table_rows = vec![];
-    let mut all_keys = std::collections::BTreeSet::new();
-
-    for row in rows {
-        let r = row.unwrap();
-        all_keys.extend(r.parameters.keys().cloned());
-        table_rows.push(r);
-    }
+    let (all_keys, _columns) = flatten_hashmap_field(&rows, |r| &r.parameters);
 
     use tabled::builder::Builder;
 
@@ -72,7 +107,7 @@ pub fn display(db_path: &Path, collection: &str) {
     header.extend(all_keys.iter().map(|k| k.as_str()));
     builder.push_record(header);
 
-    for row in &table_rows {
+    for row in rows {
         let mut values = vec![
             row.id.to_string(),
             row.status.clone(),
@@ -90,6 +125,20 @@ pub fn display(db_path: &Path, collection: &str) {
     table.with(Style::blank());
     table.modify(Rows::first(), Color::FG_BRIGHT_BLACK);
     println!("{}", table);
+}
+
+#[pyfunction]
+fn py_display(db_path: &str, collection: &str) -> PyResult<String> {
+    let path = Path::new(db_path);
+    display(path, collection);
+    Ok("Display complete.".to_string())
+}
+
+#[pymodule]
+#[pyo3(name = "_simdex")]
+fn python_module(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(py_display, m)?)?;
+    Ok(())
 }
 
 pub fn scan(root: &Path, db_path: &Path) {

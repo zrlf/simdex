@@ -2,8 +2,6 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
-use crate::core::db;
-
 /// Finds entry directories within a collection directory that contain a "data.h5" file.
 ///
 /// # Arguments

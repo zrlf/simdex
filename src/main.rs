@@ -42,6 +42,10 @@ pub enum Commands {
         #[arg()]
         collection: String,
     },
+    // Ds {
+    //     #[arg()]
+    //     uid: String,
+    // },
     Create {
         #[arg()]
         path: PathBuf,
@@ -61,6 +65,8 @@ fn main() {
             db_path,
             collection,
         } => simdex::api::display(db_path, collection),
+        // Commands::Ds { uid } => simdex::api::display_polars(uid),
+
         // create returns a Result, so we handle the error
         Commands::Create { path, uid } => {
             if let Err(e) = simdex::core::discovery::new_collection(path, uid) {
